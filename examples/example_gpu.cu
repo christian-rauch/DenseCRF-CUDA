@@ -91,7 +91,7 @@ int main( int argc, char* argv[]){
     delete[] rgbFeat;
 
     // Setup the CRF model
-    DenseCRFGPU<M> crf(W * H);
+    DenseCRFGPU crf(W * H, M);
     crf.setUnaryEnergyFromLabel( labelGPU, GT_PROB );
     // add a color independent term (feature = pixel location 0..W-1, 0..H-1)
     // x_stddev = 3

@@ -9,10 +9,11 @@
 namespace DenseCRF {
 
 // GPU CUDA Implementation
-template<int M>
 class DenseCRFGPU : public DenseCRF {
 
 protected:
+    const int M;
+
     void expAndNormalize( float* out, const float* in, float scale = 1.0, float relax = 1.0 ) override;
     void buildMap() override;
     void stepInit() override;
@@ -20,7 +21,7 @@ protected:
 public:
 
     // Create a dense CRF model of size N with M labels
-    explicit DenseCRFGPU( int N ) : DenseCRF(N) {
+    explicit DenseCRFGPU( int N, int M ) : DenseCRF(N), M(M) {
         cudaMalloc((void**)&unary_, sizeof(float) * N * M);
         cudaMalloc((void**)&current_, sizeof(float) * N * M);
         cudaMalloc((void**)&next_, sizeof(float) * N * M);
@@ -48,8 +49,7 @@ public:
 };
 
 
-template<int M>
-__global__ static void expNormKernel(int N, float* out, const float* in, float scale, float relax)
+__global__ static void expNormKernel(int N, int M , float* out, const float* in, float scale, float relax)
 {
     const int idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx >= N)
@@ -63,7 +63,8 @@ __global__ static void expNormKernel(int N, float* out, const float* in, float s
         }
     }
     float tt = 0.0;
-    float V[M]{0};
+    float *V;
+    cudaMalloc(&V, M * sizeof(float));
     for (int j = 0; j < M; ++j) {
         V[j] = __expf(scale * b[j] - mx);
         tt += V[j];
@@ -76,18 +77,17 @@ __global__ static void expNormKernel(int N, float* out, const float* in, float s
     for (int j = 0; j < M; ++j) {
         a[j] = (1 - relax) * a[j] + relax * V[j];
     }
+    cudaFree(V);
 }
 
-template<int M>
-void DenseCRFGPU<M>::expAndNormalize( float* out, const float* in, float scale /* = 1.0 */, float relax /* = 1.0 */ ) {
+void DenseCRFGPU::expAndNormalize( float* out, const float* in, float scale /* = 1.0 */, float relax /* = 1.0 */ ) {
     dim3 blocks((N_ - 1) / BLOCK_SIZE + 1, 1, 1);
     dim3 blockSize(BLOCK_SIZE, 1, 1);
-    expNormKernel<M> <<<blocks, blockSize>>> (N_, out, in, scale, relax);
+    expNormKernel <<<blocks, blockSize>>> (N_, M, out, in, scale, relax);
     cudaErrorCheck();
 }
 
-template<int M>
-__global__ static void unaryFromLabel(const short* inLabel, float* outUnary, int N,
+__global__ static void unaryFromLabel(const short* inLabel, float* outUnary, int N, int M,
                                       float u_energy, float* n_energies, float* p_energies)
 {
     const int idx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -108,15 +108,13 @@ __global__ static void unaryFromLabel(const short* inLabel, float* outUnary, int
     }
 }
 
-template<int M>
-void DenseCRFGPU<M>::setUnaryEnergyFromLabel(const short* labelGPU, float confidence /* = 0.5 */) {
+void DenseCRFGPU::setUnaryEnergyFromLabel(const short* labelGPU, float confidence /* = 0.5 */) {
     float confidences[M];
     std::fill(confidences, confidences + M, confidence);
     setUnaryEnergyFromLabel(labelGPU, confidences);
 }
 
-template<int M>
-void DenseCRFGPU<M>::setUnaryEnergyFromLabel(const short* labelGPU, float* confidences) {
+void DenseCRFGPU::setUnaryEnergyFromLabel(const short* labelGPU, float* confidences) {
     float u_energy = -log( 1.0f / M );
     float np_energies[2 * M];
     for (int i = 0; i < 2 * M; ++i) {
@@ -128,14 +126,13 @@ void DenseCRFGPU<M>::setUnaryEnergyFromLabel(const short* labelGPU, float* confi
     cudaMemcpy(np_energies_device, np_energies, sizeof(float) * 2 * M, cudaMemcpyHostToDevice);
     dim3 blocks((N_ - 1) / BLOCK_SIZE + 1, 1, 1);
     dim3 blockSize(BLOCK_SIZE, 1, 1);
-    unaryFromLabel<M> <<<blocks, blockSize>>>(labelGPU, unary_, N_, u_energy, np_energies_device, np_energies_device + M);
+    unaryFromLabel <<<blocks, blockSize>>>(labelGPU, unary_, N_, M, u_energy, np_energies_device, np_energies_device + M);
     cudaErrorCheck();
     cudaFree(np_energies_device);
 }
 
 
-template<int M>
-__global__ void computeMAP(int N, const float* in_prob, short* out_map)
+__global__ void computeMAP(int N, int M, const float* in_prob, short* out_map)
 {
     const int idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx >= N)
@@ -153,19 +150,17 @@ __global__ void computeMAP(int N, const float* in_prob, short* out_map)
     out_map[idx] = imx;
 }
 
-template<int M>
-void DenseCRFGPU<M>::buildMap() {
+void DenseCRFGPU::buildMap() {
     // Compute the maximum probability as MAP.
     if (!map_) cudaMalloc((void**)&map_, sizeof(short) * N_);
     dim3 blocks((N_ - 1) / BLOCK_SIZE + 1, 1, 1);
     dim3 blockSize(BLOCK_SIZE, 1, 1);
-    computeMAP<M> <<<blocks, blockSize>>> (N_, current_, map_);
+    computeMAP <<<blocks, blockSize>>> (N_, M, current_, map_);
     cudaErrorCheck();
 }
 
 
-template<int M>
-__global__ void invertKernel(int N, const float* in_unary, float* out_next)
+__global__ void invertKernel(int N, int M, const float* in_unary, float* out_next)
 {
     const int idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx >= N)
@@ -177,11 +172,10 @@ __global__ void invertKernel(int N, const float* in_unary, float* out_next)
     }
 }
 
-template <int M>
-void DenseCRFGPU<M>::stepInit() {
+void DenseCRFGPU::stepInit() {
     dim3 blocks((N_ - 1) / BLOCK_SIZE + 1, 1, 1);
     dim3 blockSize(BLOCK_SIZE, 1, 1);
-    invertKernel<M> <<<blocks, blockSize>>> (N_, unary_, next_);
+    invertKernel <<<blocks, blockSize>>> (N_, M, unary_, next_);
     cudaErrorCheck();
 }
 
