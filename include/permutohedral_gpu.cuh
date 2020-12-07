@@ -276,8 +276,9 @@ __global__ static void splatCache(const int n, const int vd, const T *values, Ma
     __shared__ int sharedOffsets[BLOCK_SIZE];
     // __shared__ T sharedValues[BLOCK_SIZE * vd];
     // TODO:
-    __shared__ T *sharedValues;
-    cudaMalloc(&sharedValues, BLOCK_SIZE * vd * sizeof(float));
+    __shared__ T sharedValues[BLOCK_SIZE * 22];
+    // __shared__ T *sharedValues;
+    // cudaMalloc(&sharedValues, BLOCK_SIZE * vd * sizeof(T));
     int myOffset = -1;
     T *myValue = sharedValues + threadId * vd;
 
@@ -332,7 +333,7 @@ __global__ static void splatCache(const int n, const int vd, const T *values, Ma
         atomicAdd(val + j, myValue[j]);
     }
 
-    cudaFree(sharedValues);
+    // cudaFree(sharedValues);
 }
 
 template<typename T, int pd>
@@ -370,8 +371,12 @@ __global__ static void blur(int n, int vd, T *newValues, MatrixEntry<T> *matrix,
     //in case neighbours don't exist (lattice edges) offNp and offNm are -1
     // T zeros[vd]{0};
     // TODO:
+    // T zeros[22]{0};
     T *zeros;
     cudaMalloc(&zeros, vd * sizeof(T));
+    for (int i = 0; i < vd; i++) {
+        zeros[i] = {0};
+    }
     T *valNp = zeros; //or valMe? for edges?
     T *valNm = zeros;
     if(offNp >= 0)
@@ -396,8 +401,12 @@ __global__ static void slice(const int n, int vd, T *values, MatrixEntry<T> *mat
 
     // T value[vd-1]{0};
     // TODO:
-    T *value;
-    cudaMalloc(&value, vd-1 * sizeof(T));
+    T value[21]{0};
+    // T *value;
+    // cudaMalloc(&value, vd-1 * sizeof(T));
+    // for (int i = 0; i < vd-1; i++) {
+    //     value[i] = {0};
+    // }
     T weight = 0;
 
     for (int i = 0; i <= pd; i++) {
@@ -413,7 +422,7 @@ __global__ static void slice(const int n, int vd, T *values, MatrixEntry<T> *mat
     for (int j = 0; j < vd - 1; j++)
         values[idx * (vd - 1) + j] = value[j] * weight;
 
-        cudaFree(value);
+    // cudaFree(value);
 }
 
 template<typename T, int pd>
