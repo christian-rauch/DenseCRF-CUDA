@@ -49,11 +49,11 @@ __global__ static void assembleUnorganizedFeature(int N, int pdim, const PT* pos
 template<int M, int F>
 class PottsPotentialGPU: public PairwisePotential {
 protected:
-    PermutohedralLatticeGPU<float, F, M + 1>* lattice_;
+    PermutohedralLatticeGPU<float, F>* lattice_;
     float w_;
 public:
     PottsPotentialGPU(const float* features, int N, float w) : PairwisePotential(N), w_(w) {
-        lattice_ = new PermutohedralLatticeGPU<float, F, M + 1>(N);
+        lattice_ = new PermutohedralLatticeGPU<float, F>(N, M + 1);
         lattice_->prepare(features);
     }
     ~PottsPotentialGPU(){
