@@ -371,12 +371,12 @@ __global__ static void blur(int n, int vd, T *newValues, MatrixEntry<T> *matrix,
     //in case neighbours don't exist (lattice edges) offNp and offNm are -1
     // T zeros[vd]{0};
     // TODO:
-    // T zeros[22]{0};
-    T *zeros;
-    cudaMalloc(&zeros, vd * sizeof(T));
-    for (int i = 0; i < vd; i++) {
-        zeros[i] = {0};
-    }
+    T zeros[22]{0};
+    // T *zeros;
+    // cudaMalloc(&zeros, vd * sizeof(T));
+    // for (int i = 0; i < vd; i++) {
+    //     zeros[i] = {0};
+    // }
     T *valNp = zeros; //or valMe? for edges?
     T *valNm = zeros;
     if(offNp >= 0)
@@ -384,7 +384,7 @@ __global__ static void blur(int n, int vd, T *newValues, MatrixEntry<T> *matrix,
     if(offNm >= 0)
         valNm = table.values + vd * offNm;
 
-    cudaFree(zeros);
+    // cudaFree(zeros);
 
 
     for (int i = 0; i < vd; i++)
@@ -393,7 +393,7 @@ __global__ static void blur(int n, int vd, T *newValues, MatrixEntry<T> *matrix,
 }
 
 template<typename T, int pd>
-__global__ static void slice(const int n, int vd, T *values, MatrixEntry<T> *matrix, HashTableGPU<T, pd> table) {
+__global__ static void slice(const int n, const int vd, T *values, MatrixEntry<T> *matrix, HashTableGPU<T, pd> table) {
 
     const int idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx >= n)
@@ -401,12 +401,16 @@ __global__ static void slice(const int n, int vd, T *values, MatrixEntry<T> *mat
 
     // T value[vd-1]{0};
     // TODO:
-    T value[21]{0};
-    // T *value;
-    // cudaMalloc(&value, vd-1 * sizeof(T));
-    // for (int i = 0; i < vd-1; i++) {
-    //     value[i] = {0};
-    // }
+    // T value[21]{0};
+    // printf("vd %i\n", vd);
+    // cudaDeviceSetLimit(cudaLimitMallocHeapSize, vd-1 * sizeof(T));
+    T *value;
+    cudaMalloc(&value, vd-1 * sizeof(T));
+    // value = (T*)__nv_aligned_device_malloc(vd-1 * sizeof(T));
+    // printf("ptr %p\n", value);
+    for (int i = 0; i < vd-1; i++) {
+        value[i] = {0};
+    }
     T weight = 0;
 
     for (int i = 0; i <= pd; i++) {
